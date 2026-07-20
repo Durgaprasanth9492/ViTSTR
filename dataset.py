@@ -389,7 +389,8 @@ class DataAugment(object):
             self.noises = [self.blur, self.noise, self.weather]
             self.processes = [self.camera, self.process]
 
-            self.warp = [Curve(), Distort(), Stretch()]
+            #self.warp = [Curve(), Distort(), Stretch()]
+            self.warp = [Distort(), Stretch()]
             self.geometry = [Rotate(), Perspective(), Shrink()]
 
             self.isbaseline_aug = False
