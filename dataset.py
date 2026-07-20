@@ -21,12 +21,111 @@ from PIL import Image
 import PIL.ImageOps
 import numpy as np
 from torch.utils.data import Dataset, ConcatDataset, Subset
-#from torch._utils import _accumulate
 from itertools import accumulate as _accumulate
+#from torch._utils import _accumulate
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 
 
+
+
+
+#for single dataset
+class Batch_Balanced_Dataset(object):
+
+    def __init__(self, opt):
+        # with open("opt.txt","w") as f:
+        #     f.write(dict(opt))
+        # print(opt)
+        """
+        Modulate the data ratio in the batch for a single dataset.
+        """
+        log = open(f'./saved_models/{opt.exp_name}/log_dataset.txt', 'a')
+        dashed_line = '-' * 80
+        print(dashed_line)
+        log.write(dashed_line + '\n')
+        print(f'dataset_root: {opt.train_data}\nopt.select_data: {opt.select_data}\nopt.batch_ratio: {opt.batch_ratio}')
+        log.write(f'dataset_root: {opt.train_data}\nopt.select_data: {opt.select_data}\nopt.batch_ratio: {opt.batch_ratio}\n')
+        assert len(opt.select_data) == len(opt.batch_ratio)
+
+        _AlignCollate = AlignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio_with_pad=opt.PAD, opt=opt)
+        self.data_loader_list = []
+        self.dataloader_iter_list = []
+        batch_size_list = []
+        Total_batch_size = 0
+
+        for selected_d, batch_ratio_d in zip(opt.select_data, opt.batch_ratio):
+            _batch_size = max(round(opt.batch_size * float(batch_ratio_d)), 1)
+            print(dashed_line)
+            log.write(dashed_line + '\n')
+            _dataset, _dataset_log = hierarchical_dataset(root=opt.train_data, opt=opt, select_data=[selected_d])
+            total_number_dataset = len(_dataset)
+            log.write(_dataset_log)
+            print("1111111111111 _dataset : ",_dataset[0])
+            number_dataset = int(total_number_dataset * float(opt.total_data_usage_ratio))
+            dataset_split = [number_dataset, total_number_dataset - number_dataset]
+            indices = range(total_number_dataset)
+            _dataset, _ = [Subset(_dataset, indices[offset - length:offset])
+                           for offset, length in zip(_accumulate(dataset_split), dataset_split)]
+            selected_d_log = f'num total samples of {selected_d}: {total_number_dataset} x {opt.total_data_usage_ratio} (total_data_usage_ratio) = {len(_dataset)}\n'
+            selected_d_log += f'num samples of {selected_d} per batch: {opt.batch_size} x {float(batch_ratio_d)} (batch_ratio) = {_batch_size}'
+            print(selected_d_log)
+            log.write(selected_d_log + '\n')
+            batch_size_list.append(str(_batch_size))
+            Total_batch_size += _batch_size
+            print("----------------------- Total_batch_size : ",Total_batch_size)
+            _data_loader = torch.utils.data.DataLoader(
+                _dataset, batch_size=_batch_size,
+                shuffle=True,
+                num_workers=int(opt.workers),
+                collate_fn=_AlignCollate, pin_memory=True)
+            self.data_loader_list.append(_data_loader)
+            self.dataloader_iter_list.append(iter(_data_loader))
+
+            print("|============================",_data_loader)
+            # examples = next(iter(_data_loader))
+            # for x  in enumerate(examples):
+            #     print(x) # [32, 3, 224, 224]
+        Total_batch_size_log = f'{dashed_line}\n'
+        batch_size_sum = '+'.join(batch_size_list)
+        Total_batch_size_log += f'Total_batch_size: {batch_size_sum} = {Total_batch_size}\n'
+        Total_batch_size_log += f'{dashed_line}'
+        opt.batch_size = Total_batch_size
+
+        #print(Total_batch_size_log)
+        log.write(Total_batch_size_log + '\n')
+        log.close()
+
+    def get_batch(self):
+        balanced_batch_images = []
+        balanced_batch_texts = []
+        #print("list ",self.dataloader_iter_list)
+        #print("len ",len(self.dataloader_iter_list))
+        for i, data_loader_iter in enumerate(self.dataloader_iter_list):
+            #print("loop : ",data_loader_iter)
+            try:
+                image, text = next(data_loader_iter)
+                #print("|||||||||||||||||||||||||||||||||||||||||||||",image,text)
+                balanced_batch_images.append(image)
+                balanced_batch_texts += text
+            except StopIteration:
+                self.dataloader_iter_list[i] = iter(self.data_loader_list[i])
+                image, text = next(self.dataloader_iter_list[i])
+                #print("|||||||||||||||||||||||||||||||||||||||||||||",image,text)
+                balanced_batch_images.append(image)
+                balanced_batch_texts += text
+            except ValueError:
+                #print("|||||||||||||||||||||||||||||||||||||||||||||")
+                pass
+
+        #print("len : ",len(balanced_batch_images))
+        #print("batch balanced  : ",balanced_batch_images)
+        balanced_batch_images = torch.cat(balanced_batch_images, 0)
+
+        return balanced_batch_images, balanced_batch_texts
+'''
+
+#original code for 2 datasets
 class Batch_Balanced_Dataset(object):
 
     def __init__(self, opt):
@@ -97,12 +196,12 @@ class Batch_Balanced_Dataset(object):
 
         for i, data_loader_iter in enumerate(self.dataloader_iter_list):
             try:
-                image, text = data_loader_iter.next()
+                image, text = next(data_loader_iter)
                 balanced_batch_images.append(image)
                 balanced_batch_texts += text
             except StopIteration:
                 self.dataloader_iter_list[i] = iter(self.data_loader_list[i])
-                image, text = self.dataloader_iter_list[i].next()
+                image, text = next(self.dataloader_iter_list[i])
                 balanced_batch_images.append(image)
                 balanced_batch_texts += text
             except ValueError:
@@ -111,6 +210,7 @@ class Batch_Balanced_Dataset(object):
         balanced_batch_images = torch.cat(balanced_batch_images, 0)
 
         return balanced_batch_images, balanced_batch_texts
+        '''
 
 
 def hierarchical_dataset(root, opt, select_data='/'):
