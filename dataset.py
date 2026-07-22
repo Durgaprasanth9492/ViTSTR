@@ -213,26 +213,111 @@ class Batch_Balanced_Dataset(object):
         '''
 
 
-def hierarchical_dataset(root, opt, select_data='/'):
-    """ select_data='/' contains all sub-directory of root directory """
+#def hierarchical_dataset(root, opt, select_data='/'):
+    #""" select_data='/' contains all sub-directory of root directory """
+    #dataset_list = []
+   # dataset_log = f'dataset_root:    {root}\t dataset: {select_data[0]}'
+   # print(dataset_log)
+    #dataset_log += '\n'
+    #for dirpath, dirnames, filenames in os.walk(root+'/'):
+        #if not dirnames:
+            #select_flag = False
+            #for selected_d in select_data:
+                #if selected_d in dirpath:
+                    #select_flag = True
+                    #break
+
+            #if select_flag:
+                #dataset = LmdbDataset(dirpath, opt)
+                #sub_dataset_log = f'sub-directory:\t/{os.path.relpath(dirpath, root)}\t num samples: {len(dataset)}'
+                #print(sub_dataset_log)
+                #dataset_log += f'{sub_dataset_log}\n'
+                dataset_list.append(dataset)
+            
+    #concatenated_dataset = ConcatDataset(dataset_list)
+
+    #return concatenated_dataset, dataset_log
+
+    def hierarchical_dataset(root, opt, select_data=['/']):
+    """
+    Load LMDB datasets.
+
+    Supports both:
+    1. root/
+          MJ/
+          ST/
+          IAM/
+
+    and
+
+    2. root/
+          data.mdb
+          lock.mdb
+    """
+
     dataset_list = []
+
     dataset_log = f'dataset_root:    {root}\t dataset: {select_data[0]}'
     print(dataset_log)
     dataset_log += '\n'
-    for dirpath, dirnames, filenames in os.walk(root+'/'):
-        if not dirnames:
-            select_flag = False
-            for selected_d in select_data:
-                if selected_d in dirpath:
-                    select_flag = True
-                    break
 
-            if select_flag:
-                dataset = LmdbDataset(dirpath, opt)
-                sub_dataset_log = f'sub-directory:\t/{os.path.relpath(dirpath, root)}\t num samples: {len(dataset)}'
-                print(sub_dataset_log)
-                dataset_log += f'{sub_dataset_log}\n'
-                dataset_list.append(dataset)
+    # -------------------------------------------------------
+    # Case 1: Root itself is an LMDB dataset
+    # -------------------------------------------------------
+    if (os.path.isfile(os.path.join(root, "data.mdb")) and
+            os.path.isfile(os.path.join(root, "lock.mdb"))):
+
+        dataset = LmdbDataset(root, opt)
+
+        sub_dataset_log = f'sub-directory:\t/.\t num samples: {len(dataset)}'
+        print(sub_dataset_log)
+        dataset_log += sub_dataset_log + '\n'
+
+        dataset_list.append(dataset)
+
+    else:
+        # ---------------------------------------------------
+        # Case 2: Search LMDB datasets inside subdirectories
+        # ---------------------------------------------------
+        for dirpath, dirnames, filenames in os.walk(root):
+
+            if not dirnames:
+
+                select_flag = False
+
+                for selected_d in select_data:
+                    if selected_d == '/' or selected_d in dirpath:
+                        select_flag = True
+                        break
+
+                if select_flag:
+
+                    if ("data.mdb" in filenames and
+                            "lock.mdb" in filenames):
+
+                        dataset = LmdbDataset(dirpath, opt)
+
+                        sub_dataset_log = (
+                            f'sub-directory:\t/{os.path.relpath(dirpath, root)}'
+                            f'\t num samples: {len(dataset)}'
+                        )
+
+                        print(sub_dataset_log)
+                        dataset_log += sub_dataset_log + '\n'
+
+                        dataset_list.append(dataset)
+
+    # -------------------------------------------------------
+    # Error if nothing found
+    # -------------------------------------------------------
+    if len(dataset_list) == 0:
+        raise RuntimeError(
+            f"\nNo LMDB dataset found in:\n{root}\n"
+            "Expected either:\n"
+            "1. root/data.mdb & root/lock.mdb\n"
+            "or\n"
+            "2. root/<dataset_name>/data.mdb & lock.mdb"
+        )
 
     concatenated_dataset = ConcatDataset(dataset_list)
 
